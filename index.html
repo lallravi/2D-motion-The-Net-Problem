@@ -33,7 +33,7 @@
         #runButton { background-image: linear-gradient(to right, var(--accent-purple), var(--accent-blue)); }
         #resetButton { background-image: linear-gradient(to right, #4b5563, #374151); }
         #runButton:hover, #resetButton:hover { transform: translateY(-2px); box-shadow: 0 6px 15px rgba(0,0,0,0.3); }
-        #canvas { width: 100%; height: auto; aspect-ratio: 16 / 9; border: 1px solid var(--border-color); background-color: #C1C0F0; border-radius: 8px; }
+        #canvas { width: 100%; height: auto; aspect-ratio: 16 / 9; border: 1px solid var(--border-color); background-color: var(--card-bg); border-radius: 8px; }
         #results { margin-top: 20px; padding: 15px; background-color: #111827; border-radius: 8px; border: 1px solid var(--border-color); font-size: 1.1em; text-align: center; }
         .success { color: var(--success-green); font-weight: bold; }
         .failure { color: var(--failure-red); font-weight: bold; }
@@ -132,7 +132,7 @@
                 const params = calculateInitialPhysics();
                 updateResultsAndExplanation(params);
 
-                const { scale } = getCanvasConfig(params);
+                const { scale } = getCanvasConfig(params); 
                 const ball_radius_m = BALL_RADIUS_PX / scale;
 
                 ball = {
@@ -155,12 +155,9 @@
                     updateBallState(deltaTime);
                     drawAnimatedFrame(params);
 
-                    // Stop if ball is barely moving on the ground
                     if (Math.abs(ball.vy) < 0.1 && ball.y === ball.radius_m) {
                         const staticEnergy = g * ball.radius_m;
-                        if (0.5 * ball.vy * ball.vy < staticEnergy){
-                             // Animation can be stopped here, but we let it run
-                        }
+                        if (0.5 * ball.vy * ball.vy < staticEnergy){ }
                     }
 
                     animationFrameId = requestAnimationFrame(animate);
@@ -169,20 +166,15 @@
             }
 
             function updateBallState(dt) {
-                // Update velocity due to gravity
                 ball.vy -= g * dt;
-
-                // Update position
                 ball.x += ball.vx * dt;
                 ball.y += ball.vy * dt;
-
                 trajectoryPoints.push({x: ball.x, y: ball.y});
 
-                // Collision with ground
                 if (ball.y < ball.radius_m) {
                     ball.y = ball.radius_m;
                     ball.vy *= -parseFloat(sliders.restitution.value);
-                    ball.vx *= 0.95; // Ground friction
+                    ball.vx *= 0.95; 
                 }
             }
 
@@ -192,8 +184,10 @@
                 const angleRad = -angleDeg * Math.PI / 180;
                 const u_x = u * Math.cos(angleRad), u_y = u * Math.sin(angleRad);
 
-                const temp_params = { h, d_net, x_land: u_x * ( (u_y + Math.sqrt(u_y*u_y + 2*g*h)) / g ) };
-                const { scale } = getCanvasConfig(temp_params);
+                const temp_t_ground = (u_y + Math.sqrt(u_y*u_y + 2*g*h)) / g;
+                const x_land = u_x * temp_t_ground;
+                
+                const { scale } = getCanvasConfig({h, d_net, x_land});
                 const ball_radius_m = BALL_RADIUS_PX / scale;
                 const h_effective = h + ball_radius_m;
                 
@@ -202,25 +196,23 @@
                 const clearance = (y_center_at_net - ball_radius_m) - h_net;
                 
                 const a_q = -0.5 * g, b_q = u_y, c_q = h_effective;
-                const t_ground = (-b_q - Math.sqrt(b_q * b_q - 4 * a_q * c_q)) / (2 * a_q);
-                const x_land = u_x * t_ground;
-                
-                const v_y_final = u_y - g * t_ground;
+                const t_ground_impact = (-b_q - Math.sqrt(b_q * b_q - 4 * a_q * c_q)) / (2 * a_q);
+                const v_y_final = u_y - g * t_ground_impact;
                 const v_impact_mag = Math.sqrt(u_x * u_x + v_y_final * v_y_final);
                 const v_impact_angle = Math.atan2(v_y_final, u_x) * 180 / Math.PI;
 
                 return {
                     clearance, y_center_at_net, x_land, d_net, v_impact_mag, v_impact_angle, h, u, angleDeg, h_net, u_x, u_y, t_net,
-                    h_effective, t_ground, v_y_final, ball_radius_m
+                    h_effective, t_ground: t_ground_impact, v_y_final, ball_radius_m
                 };
             }
-
+            
             function getCanvasConfig(params) {
                 const rect = canvas.parentElement.getBoundingClientRect();
                 const canvasWidth = rect.width;
                 const canvasHeight = rect.width * (9 / 16);
                 
-                const worldWidth = Math.max(params.d_net * 1.5, params.x_land * 1.2, 30);
+                const worldWidth = Math.max(params.d_net * 1.3, params.x_land || 0, 30);
                 const worldHeight = Math.max(params.h * 1.5, 10);
                 const scale = Math.min(canvasWidth / worldWidth, canvasHeight / worldHeight);
                 const padding = 50;
@@ -233,50 +225,87 @@
                 const { canvasWidth, canvasHeight, transform } = config;
                 canvas.width = canvasWidth; canvas.height = canvasHeight;
                 ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-                ctx.fillStyle = "#E6E6FA";
+                // SETTING THE VISIBLE BACKGROUND COLOR TO MATCH CARD-BG
+                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--card-bg').trim();
                 ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
                 const { h, d_net, h_net } = params;
                 
+                // Ground
                 ctx.beginPath(); ctx.moveTo(transform(0, 0).x - 50, transform(0, 0).y); ctx.lineTo(canvasWidth, transform(0, 0).y);
-                ctx.strokeStyle = '#664229'; ctx.lineWidth = 4; ctx.stroke();
+                ctx.strokeStyle = '#8B5C3B'; // Light Brown
+                ctx.lineWidth = 4; ctx.stroke();
                 
+                // Net
                 const netBottom = transform(d_net, 0), netTop = transform(d_net, h_net);
                 ctx.beginPath(); ctx.moveTo(netBottom.x, netBottom.y); ctx.lineTo(netTop.x, netTop.y);
-                ctx.strokeStyle = '#f9fafb'; ctx.lineWidth = 4; ctx.stroke();
+                ctx.strokeStyle = '#F9FAFB'; // White
+                ctx.lineWidth = 4; ctx.stroke();
                 
+                // Pillar
                 const pillarWidth = 12;
                 const pillarTop = transform(0, h);
                 const groundY = transform(0, 0).y;
-                ctx.fillStyle = '#5D6D7E';
+                ctx.fillStyle = '#94A3B8'; // Light Blue-Gray
                 ctx.fillRect(pillarTop.x - pillarWidth / 2, pillarTop.y, pillarWidth, groundY - pillarTop.y);
             }
             
             function drawInitialSetup() {
-                const params = calculateInitialPhysics();
-                const config = getCanvasConfig(params);
-                drawStaticScene(config, params);
+                const staticParams = {
+                    h: parseFloat(sliders.height.value),
+                    d_net: parseFloat(sliders.netDist.value),
+                    h_net: parseFloat(sliders.netHeight.value)
+                };
+                const config = getCanvasConfig(staticParams);
+                drawStaticScene(config, staticParams);
                 
-                const { transform } = config;
-                const { h_effective, angleDeg } = params;
+                const { transform, scale } = config;
+                const ball_radius_m = BALL_RADIUS_PX / scale;
+                const h_effective = staticParams.h + ball_radius_m;
+                const angleDeg = parseFloat(sliders.angle.value);
                 const angleRad = -angleDeg * Math.PI / 180;
                 
                 const startPos = transform(0, h_effective);
-                ctx.beginPath(); ctx.arc(startPos.x, startPos.y, BALL_RADIUS_PX, 0, 2*Math.PI);
-                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent-blue').trim(); ctx.fill();
+                
+                // Draw initial ball
+                ctx.beginPath();
+                ctx.arc(startPos.x, startPos.y, BALL_RADIUS_PX, 0, 2 * Math.PI);
+                ctx.fillStyle = '#4ADE80'; // Vibrant Green
+                ctx.fill();
+
+                // Draw Angle Indicator
+                const angleLineLength = 50;
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)'; // White
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'; // White
+                ctx.lineWidth = 2;
+                
+                ctx.beginPath(); ctx.setLineDash([3, 4]);
+                ctx.moveTo(startPos.x, startPos.y); ctx.lineTo(startPos.x + angleLineLength, startPos.y);
+                ctx.stroke(); ctx.setLineDash([]);
+                
+                ctx.beginPath();
+                ctx.moveTo(startPos.x, startPos.y);
+                ctx.lineTo(startPos.x + angleLineLength * Math.cos(angleRad), startPos.y - angleLineLength * Math.sin(angleRad));
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(startPos.x, startPos.y, 20, 0, angleRad, true);
+                ctx.stroke();
+                ctx.font = '12px Arial';
+                ctx.fillText(angleDeg + '°', startPos.x + 25, startPos.y + 18);
             }
 
             function drawAnimatedFrame(params) {
-                const config = getCanvasConfig(params);
+                const config = getCanvasConfig(params); 
                 drawStaticScene(config, params);
 
                 const { transform, scale } = config;
                 
-                // Draw trajectory trail
+                // Trajectory trail
                 ctx.beginPath();
                 const startPoint = transform(trajectoryPoints[0].x, trajectoryPoints[0].y);
                 ctx.moveTo(startPoint.x, startPoint.y);
-                ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+                ctx.strokeStyle = 'rgba(56, 189, 248, 0.6)'; // Light Blue
                 ctx.lineWidth = 2;
                 for (let i = 1; i < trajectoryPoints.length; i++) {
                     const point = transform(trajectoryPoints[i].x, trajectoryPoints[i].y);
@@ -284,20 +313,17 @@
                 }
                 ctx.stroke();
 
-                // Draw ball
+                // Animated ball
                 const ball_pos = transform(ball.x, ball.y);
                 ctx.beginPath();
                 ctx.arc(ball_pos.x, ball_pos.y, BALL_RADIUS_PX, 0, 2 * Math.PI);
-                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--failure-red').trim();
+                ctx.fillStyle = '#FDE047'; // Bright Yellow
                 ctx.fill();
 
-                // Draw velocity vectors
+                // Velocity vectors
                 const vector_scale = scale * 0.05;
-                const vxColor = '#4ade80', vyColor = '#f87171';
-
-                // Vx vector
+                const vxColor = '#A78BFA', vyColor = '#F472B6'; // Purple and Pink for vectors
                 drawArrow(ctx, ball_pos.x, ball_pos.y, ball_pos.x + ball.vx * vector_scale, ball_pos.y, vxColor, 2);
-                // Vy vector
                 drawArrow(ctx, ball_pos.x, ball_pos.y, ball_pos.x, ball_pos.y - ball.vy * vector_scale, vyColor, 2);
             }
 
@@ -312,7 +338,6 @@
             }
 
             function updateResultsAndExplanation(p) {
-                // This function now only calculates for the initial arc, the simulation handles the rest
                 resultsEl.innerHTML = (p.x_land < p.d_net) ? `<span class="failure">FAILS TO REACH NET</span><br>Initial arc lands at ${p.x_land.toFixed(2)}m.` :
                                       (p.clearance > 0) ? `<span class="success">CLEARS THE NET</span> by ${p.clearance.toFixed(2)}m.` :
                                       `<span class="failure">HITS THE NET</span> (Missed by ${Math.abs(p.clearance).toFixed(2)}m).`;
