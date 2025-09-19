@@ -206,11 +206,12 @@ sup { top: -0.5em; }
 
     <script>
         <script>
+    <script>
     document.addEventListener('DOMContentLoaded', () => {
         // --- CONSTANTS AND STATE ---
         const g = 9.81;
-        const BALL_RADIUS_PX = 8; // Made ball slightly bigger
-        const RESTITUTION = 0.65; // Bounciness factor (0.65 = 65% vertical speed retained)
+        const BALL_RADIUS_PX = 8;
+        const RESTITUTION = 0.65; // Bounciness factor
         let animationFrameId;
         
         // --- DOM ELEMENTS ---
@@ -219,7 +220,6 @@ sup { top: -0.5em; }
         const runButton = document.getElementById('runButton'), resetButton = document.getElementById('resetButton');
 
         const sliders = { height: document.getElementById('height'), speed: document.getElementById('speed'), angle: document.getElementById('angle'), netDist: document.getElementById('netDist'), netHeight: document.getElementById('netHeight'), simSpeed: document.getElementById('simSpeed') };
-        // NEW: Changed default simSpeed to be slower
         const defaultValues = { height: 2.8, speed: 64, angle: 7, netDist: 11.9, netHeight: 0.91, simSpeed: 0.5 };
         const values = { height: document.getElementById('height-value'), speed: document.getElementById('speed-value'), angle: document.getElementById('angle-value'), netDist: document.getElementById('netDist-value'), netHeight: document.getElementById('netHeight-value'), simSpeed: document.getElementById('simSpeed-value') };
 
@@ -252,11 +252,9 @@ sup { top: -0.5em; }
             if (animationFrameId) cancelAnimationFrame(animationFrameId);
             runButton.disabled = true;
 
-            // The analytical physics are still calculated for the explanation and ideal path
             const analyticalParams = calculatePhysics();
             updateResultsAndExplanation(analyticalParams);
 
-            // --- NEW: Initialize the projectile for step-by-step simulation ---
             let projectile = {
                 x: 0,
                 y: analyticalParams.h_effective,
@@ -267,64 +265,61 @@ sup { top: -0.5em; }
 
             let lastTimestamp = 0;
             function animate(timestamp) {
-                if (!lastTimestamp) lastTimestamp = timestamp;
+                if (!lastTimestamp) {
+                    lastTimestamp = timestamp;
+                    animationFrameId = requestAnimationFrame(animate);
+                    return;
+                }
                 const deltaTime = (timestamp - lastTimestamp) / 1000;
                 lastTimestamp = timestamp;
 
-                // Update the projectile's state for the current frame
                 const continueSim = updateProjectileState(projectile, deltaTime);
-                
-                // Draw the new frame
                 drawAnimatedFrame(projectile, analyticalParams);
 
                 if (continueSim) {
                     animationFrameId = requestAnimationFrame(animate);
                 } else {
-                    // Simulation ends
                     runButton.disabled = false;
-                    // Draw final impact vectors
                     drawFinalImpactVectors(projectile, analyticalParams);
                 }
             }
             animationFrameId = requestAnimationFrame(animate);
         }
 
-        // --- NEW: Step-by-step physics update function ---
         function updateProjectileState(proj, dt) {
             const simSpeed = parseFloat(sliders.simSpeed.value);
+            if (isNaN(simSpeed) || simSpeed <= 0) return true; // Pause if speed is invalid
             const effectiveDt = dt * simSpeed;
 
-            // Update velocity with gravity
             proj.vy -= g * effectiveDt;
-            
-            // Update position
             proj.x += proj.vx * effectiveDt;
             proj.y += proj.vy * effectiveDt;
 
-            // Collision with ground (bouncing)
             if (proj.y < proj.radius_m) {
-                proj.y = proj.radius_m; // Place it right on the ground
-                proj.vy *= -RESTITUTION; // Reverse and dampen vertical velocity
+                proj.y = proj.radius_m;
+                proj.vy *= -RESTITUTION;
             }
             
-            // End condition: stop when the ball is on the ground and has very little energy
+            // **FIXED**: More robust end condition
+            const onGround = proj.y <= proj.radius_m;
             const speed = Math.sqrt(proj.vx**2 + proj.vy**2);
-            if (proj.y === proj.radius_m && speed < 0.1) {
+            if (onGround && speed < 0.2) {
                 return false; // Stop simulation
             }
 
             return true; // Continue simulation
         }
         
-        // --- CORE LOGIC (Mostly unchanged, used for explanation) ---
         function calculatePhysics() {
             const h = parseFloat(sliders.height.value), u = parseFloat(sliders.speed.value), angleDeg = parseFloat(sliders.angle.value), d_net = parseFloat(sliders.netDist.value), h_net = parseFloat(sliders.netHeight.value);
             const angleRad = -angleDeg * Math.PI / 180;
             const u_x = u * Math.cos(angleRad), u_y = u * Math.sin(angleRad);
             
-            // Temporary calculation to get a good canvas scale
-            const t_g_temp = (-u_y + Math.sqrt(u_y*u_y + 2*g*h)) / g;
+            // **FIXED**: Corrected quadratic formula for time calculation
+            const t_g_temp_sqrt = Math.sqrt(u_y*u_y + 2*g*h);
+            const t_g_temp = (u_y < 0) ? (-u_y + t_g_temp_sqrt) / g : (u_y + t_g_temp_sqrt) / g;
             const x_land_temp = u_x * t_g_temp;
+            
             const { scale } = getCanvasConfig({h, d_net, x_land: x_land_temp});
             const ball_radius_m = BALL_RADIUS_PX / scale;
             
@@ -333,7 +328,9 @@ sup { top: -0.5em; }
             const y_center_at_net = h_effective + u_y * t_net - 0.5 * g * t_net * t_net;
             const clearance = (y_center_at_net - ball_radius_m) - h_net;
             
-            const t_ground = (-u_y + Math.sqrt(u_y*u_y + 2*g*h_effective)) / g;
+            // **FIXED**: Corrected quadratic formula for time calculation
+            const t_ground_sqrt = Math.sqrt(u_y*u_y + 2*g*h_effective);
+            const t_ground = (u_y < 0) ? (-u_y + t_ground_sqrt) / g : (u_y + t_ground_sqrt) / g;
             const x_land = u_x * t_ground;
             
             const v_y_final = u_y - g * t_ground;
@@ -343,14 +340,13 @@ sup { top: -0.5em; }
             return {clearance, y_center_at_net, x_land, d_net, v_impact_mag, v_impact_angle, h, u, angleDeg, h_net, u_x, u_y, t_net, h_effective, t_ground, v_y_final, ball_radius_m};
         }
 
-        // --- DRAWING FUNCTIONS ---
         function getCanvasConfig(params) {
             const rect = canvas.parentElement.getBoundingClientRect();
             const canvasWidth = rect.width;
-            const canvasHeight = rect.width * (9 / 16); // Maintain 16:9 aspect ratio
+            const canvasHeight = rect.width * (9 / 16);
             
-            const worldWidth = Math.max(params.d_net, params.x_land) * 1.2;
-            const worldHeight = params.h * 1.25;
+            const worldWidth = Math.max(params.d_net, params.x_land, 1) * 1.2;
+            const worldHeight = Math.max(params.h, 1) * 1.25;
             const scale = Math.min((canvasWidth - 100) / worldWidth, (canvasHeight - 100) / worldHeight);
             const padding = 50;
             const transform = (wx, wy) => ({ x: padding + wx * scale, y: canvasHeight - padding - wy * scale });
@@ -364,17 +360,13 @@ sup { top: -0.5em; }
             canvas.height = canvasHeight;
             ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
-            // Ground
             const groundY = transform(0, 0).y;
             ctx.beginPath(); ctx.moveTo(0, groundY); ctx.lineTo(canvasWidth, groundY); ctx.strokeStyle = '#664229'; ctx.lineWidth = 2; ctx.stroke();
             
-            // Net
-            const { d_net, h_net } = params;
+            const { d_net, h_net, h } = params;
             const netBottom = transform(d_net, 0), netTop = transform(d_net, h_net);
             ctx.beginPath(); ctx.moveTo(netBottom.x, netBottom.y); ctx.lineTo(netTop.x, netTop.y); ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 4; ctx.stroke();
             
-            // Pillar
-            const { h } = params;
             const pillarWidth = 12;
             const pillarTop = transform(0, h);
             ctx.fillStyle = '#5D6D7E';
@@ -390,50 +382,42 @@ sup { top: -0.5em; }
             const { h_effective, u_x, u_y } = params;
             
             const startPos = transform(0, h_effective);
-
-            // Draw ball
             ctx.beginPath(); ctx.arc(startPos.x, startPos.y, BALL_RADIUS_PX, 0, 2*Math.PI); ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent-blue').trim(); ctx.fill();
             
-            // --- NEW: Draw Initial Velocity Vectors ---
-            const vector_scale = scale * 0.2; // Visual scale for vectors
+            const vector_scale = scale * 0.2;
             const vx_color = getComputedStyle(document.documentElement).getPropertyValue('--success-green').trim();
             const vy_color = getComputedStyle(document.documentElement).getPropertyValue('--failure-red').trim();
             
-            // VX vector
             drawArrow(ctx, startPos.x, startPos.y, startPos.x + u_x * vector_scale, startPos.y, vx_color, 2);
             ctx.fillStyle = vx_color;
             ctx.font = 'bold 14px Arial';
             ctx.textAlign = 'center';
             ctx.fillText(`vₓ = ${u_x.toFixed(1)}`, startPos.x + u_x * vector_scale / 2, startPos.y - 10);
             
-            // VY vector
             drawArrow(ctx, startPos.x, startPos.y, startPos.x, startPos.y - u_y * vector_scale, vy_color, 2);
             ctx.fillStyle = vy_color;
             ctx.textAlign = 'left';
             ctx.fillText(`vᵧ = ${u_y.toFixed(1)}`, startPos.x + 10, startPos.y - u_y * vector_scale / 2);
         }
 
-        // --- MODIFIED: Draws a single frame of the live simulation ---
         function drawAnimatedFrame(projectile, params) {
             const config = getCanvasConfig(params);
             drawStaticScene(config, params);
 
-            const { transform, scale } = config;
-            const { h_effective, u_x, u_y, t_ground } = params;
+            const { transform } = config;
+            const { h_effective, u_x, u_y, t_ground, ball_radius_m } = params;
             
-            // Draw ideal trajectory (dotted line)
             const startPos = transform(0, h_effective);
             ctx.beginPath(); ctx.moveTo(startPos.x, startPos.y); ctx.strokeStyle = 'rgba(220, 38, 38, 0.5)'; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
             for (let i = 1; i <= 100; i++) {
                 const time_step = (i / 100) * t_ground;
                 const traj_x = u_x * time_step, traj_y = h_effective + u_y * time_step - 0.5 * g * time_step * time_step;
-                if (traj_y < projectile.radius_m) break;
+                if (traj_y < ball_radius_m) break;
                 ctx.lineTo(transform(traj_x, traj_y).x, transform(traj_x, traj_y).y);
             }
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // Draw the actual, bouncing ball
             const ball_pos = transform(projectile.x, projectile.y);
             ctx.beginPath(); ctx.arc(ball_pos.x, ball_pos.y, BALL_RADIUS_PX, 0, 2 * Math.PI); ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--failure-red').trim(); ctx.fill();
         }
@@ -446,11 +430,7 @@ sup { top: -0.5em; }
             const ball_pos = transform(projectile.x, projectile.y);
 
             ctx.font = 'bold 14px Arial';
-            
-            // Draw final VX
             drawArrow(ctx, ball_pos.x, ball_pos.y, ball_pos.x + projectile.vx * vector_scale, ball_pos.y, impactColor, 3);
-            
-            // Draw final VY (will be very small if it has settled)
             drawArrow(ctx, ball_pos.x, ball_pos.y, ball_pos.x, ball_pos.y - projectile.vy * vector_scale, impactColor, 3);
         }
         
@@ -464,7 +444,6 @@ sup { top: -0.5em; }
             ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
         }
 
-        // --- UI AND EXPLANATION (Unchanged) ---
         function updateResultsAndExplanation(p) {
             resultsEl.innerHTML = (p.x_land < p.d_net) ? `<span class="failure">FAILS TO REACH NET</span><br>Ideal path lands at ${p.x_land.toFixed(2)}m.` :
                                   (p.clearance > 0) ? `<span class="success">CLEARS THE NET</span> by ${p.clearance.toFixed(2)}m in ideal path.` :
@@ -504,7 +483,9 @@ sup { top: -0.5em; }
         for (const key in sliders) {
             sliders[key].addEventListener('input', () => {
                 updateSliderDisplays();
-                drawInitialSetup();
+                if (!animationFrameId) { // Only draw initial setup if sim isn't running
+                    drawInitialSetup();
+                }
             });
         }
         runButton.addEventListener('click', runSimulation);
@@ -513,6 +494,7 @@ sup { top: -0.5em; }
         // --- Initialize on Load ---
         resetSimulation();
     });
+</script>
 </script>
     </script>
 </body>
